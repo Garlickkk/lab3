@@ -2,101 +2,55 @@
 #define STACK_HPP
 
 #include "array_sequence.hpp"
-#include "list_sequence.hpp"
 #include "exceptions.hpp"
 #include <functional>
-#include <stdexcept>
+
 
 template<class T>
 class Stack {
 private:
     Sequence<T> *data;
-    bool ownsData; // флаг, нужно ли удалять data
-
-    void EnsureOwnership(); //гарантирует, что стек владеет своими данными
 
 public:
     Stack();
-
-    explicit Stack(Sequence<T> *seq); // забирает владение памятью для предотвращения утечек памяти при создании
-    // новых последоватльеостей в методе sort and concat
-
-    // Конструктор копирования: создаёт глубокую копию данных другого стека
-    Stack(const Stack<T> &other);
-
-
+    explicit Stack(Sequence<T> *seq); // создание нового стека из результата операции над seq (map, ....)
     ~Stack();
 
-    // Оператор присваивания: глубокая копия
-    Stack<T> &operator=(const Stack<T> &other);
 
-
-    void Push(T item); // Добавление элемента на вершину стека
-
-    T Pop(); // Удаление элемента с вершины стека
-
-
-    T Top() const; // элемент н вершине
-
-
+    void Push(T item);
+    T Pop();
+    T Top() const;
     bool IsEmpty() const;
-
-
     int GetSize() const;
 
+    int IndexOf(const Stack<T>& subseq) const; // инд первого вхожд подпосл
+    bool Contains(const Stack<T>& subseq) const; // проверка наличия подпосл
+    Stack<int>* FindAllOccurrences(const Stack<T>& subseq) const; // все вхождения
 
-    Sequence<T> *Map(std::function<T(T)> f) const;
-
-    Sequence<T> *Where(std::function<bool(T)> f) const;
-
+    Stack<T> *Map(std::function<T(T)> f) const;
+    Stack<T> *Map(std::function<T(T, int)> f) const;
+    Stack<T> *Where(std::function<bool(T)> f) const;
     T Reduce(std::function<T(T, T)> f, T init) const;
-
-    Sequence<T> *Zip(Stack<T> *other, std::function<T(T, T)> f) const;
-
-    Stack<T> *Sort() const; // сорт возвр новый отсортированный стек
-
+    Stack<T> *Zip(Stack<T> *other, std::function<T(T, T)> f) const;
     Stack<T> *Concat(Stack<T> *other) const;
-
     Sequence<T> *GetSubsequence(int start, int end) const;
+    Stack<T> *Skip(int n) const;
+    Stack<T> *Take(int n) const;
 
     void Print(std::ostream &os = std::cout) const;
 
-    template<class U> // Перегрузка оператора вывода
+    template<class U>
     friend std::ostream &operator<<(std::ostream &os, const Stack<U> &stack);
 };
 
 
 template<class T>
-void Stack<T>::EnsureOwnership() {
-    if (!ownsData) {
-        // Создаём новую последовательность того же типа, что и data
-        Sequence<T> *copiedData = data->Empty();
-        for (int i = 0; i < data->GetLength(); i++) {
-            Sequence<T> *temp = copiedData->Append(data->Get(i));
-            if (temp != copiedData) {
-                delete copiedData;
-                copiedData = temp;
-            }
-        }
-        data = copiedData;
-        ownsData = true;
-    }
-}
+Stack<T>::Stack() : data(new MutableArraySequence<T>()) {}
 
 template<class T>
-Stack<T>::Stack() : data(new MutableArraySequence<T>()), ownsData(true) {
-}
-
-template<class T>
-Stack<T>::Stack(Sequence<T> *seq) : data(seq), ownsData(true) {
-    // Конструктор из существующей последовательности
-}
-
-// Конструктор копирования
-template<class T>
-Stack<T>::Stack(const Stack<T> &other) : data(other.data->Empty()), ownsData(true) {
-    for (int i = 0; i < other.data->GetLength(); i++) {
-        Sequence<T> *temp = data->Append(other.data->Get(i));
+Stack<T>::Stack(Sequence<T> *seq) : data(seq->Empty()) {
+    for (int i = 0; i < seq->GetLength(); i++) {
+        Sequence<T> *temp = data->Append(seq->Get(i));
         if (temp != data) {
             delete data;
             data = temp;
@@ -104,41 +58,13 @@ Stack<T>::Stack(const Stack<T> &other) : data(other.data->Empty()), ownsData(tru
     }
 }
 
-
 template<class T>
 Stack<T>::~Stack() {
-    if (ownsData && data != nullptr) {
-        delete data;
-    }
-}
-
-
-template<class T>
-Stack<T> &Stack<T>::operator=(const Stack<T> &other) {
-    // Оператор присваивания
-    if (this != &other) {
-        // Удаляем старые данные, если владеем ими
-        if (ownsData && data != nullptr) {
-            delete data;
-        }
-        data = other.data->Empty(); // создание новой пустой подпоследовательности
-        ownsData = true;
-        for (int i = 0; i < other.data->GetLength(); i++) {
-            // Копируем элементы
-            Sequence<T> *temp = data->Append(other.data->Get(i));
-            if (temp != data) {
-                delete data;
-                data = temp;
-            }
-        }
-    }
-    return *this;
+    delete data;
 }
 
 template<class T>
 void Stack<T>::Push(T item) {
-    EnsureOwnership();
-
     Sequence<T> *temp = data->Append(item);
     if (temp != data) {
         delete data;
@@ -148,27 +74,19 @@ void Stack<T>::Push(T item) {
 
 template<class T>
 T Stack<T>::Pop() {
-    EnsureOwnership();
-
     if (data->GetLength() == 0) {
         throw EmptyContainerException("Стек пуст");
     }
-
     T item = data->GetLast();
-
-    if (data->GetLength() == 1) {
-        // Если остался один элемент, создаём пустую последовательность
+    if (data->GetLength() == 1) { // 1 эл -> пустая подпос
         Sequence<T> *newData = data->Empty();
         delete data;
         data = newData;
-    } else {
-        // подпоследовательность без последнего элемента
+    } else { // иначе посл без последнего эл
         Sequence<T> *newData = data->GetSubsequence(0, data->GetLength() - 2);
         delete data;
         data = newData;
     }
-    // ownsData = true
-
     return item;
 }
 
@@ -180,66 +98,96 @@ T Stack<T>::Top() const {
     return data->GetLast();
 }
 
-
 template<class T>
 bool Stack<T>::IsEmpty() const {
     return data->GetLength() == 0;
 }
-
 
 template<class T>
 int Stack<T>::GetSize() const {
     return data->GetLength();
 }
 
-
 template<class T>
-Sequence<T> *Stack<T>::Map(std::function<T(T)> f) const {
-    return data->Map(f);
+int Stack<T>::IndexOf(const Stack<T>& subseq) const {
+    if (subseq.GetSize() == 0) { // если п-ть пустая
+        return 0;
+    }
+    if (subseq.GetSize() > GetSize()) { // если п-ть длиннее чем стек
+        return -1;
+    }
+
+    for (int i = 0; i <= GetSize() - subseq.GetSize(); i++) {
+        bool found = true;
+        for (int j = 0; j < subseq.GetSize(); j++) {
+            if (data->Get(i + j) != subseq.data->Get(j)) {
+                found = false;
+                break;
+            }
+        }
+        if (found) {
+            return i;
+        }
+    }
+    return -1;
 }
 
-
 template<class T>
-Sequence<T> *Stack<T>::Where(std::function<bool(T)> f) const {
-    return data->Where(f);
+bool Stack<T>::Contains(const Stack<T>& subseq) const {
+    return IndexOf(subseq) != -1; // если не вернул -1 -> содержит
 }
 
+template<class T>
+Stack<int>* Stack<T>::FindAllOccurrences(const Stack<T>& subseq) const {
+    Stack<int>* result = new Stack<int>();
+
+    if (subseq.GetSize() == 0 || subseq.GetSize() > GetSize()) {
+        return result; // пустой стек
+    }
+
+    for (int i = 0; i <= GetSize() - subseq.GetSize(); i++) {
+        bool found = true;
+        for (int j = 0; j < subseq.GetSize(); j++) {
+            if (data->Get(i + j) != subseq.data->Get(j)) {
+                found = false;
+                break;
+            }
+        }
+        if (found) {
+            result->Push(i);
+        }
+    }
+    return result;
+}
+
+template<class T>
+Stack<T> *Stack<T>::Map(std::function<T(T)> f) const {
+    Sequence<T> *mapped = data->Map(f);
+    return new Stack<T>(mapped);
+}
+
+template<class T>
+Stack<T> *Stack<T>::Map(std::function<T(T, int)> f) const {
+    Sequence<T> *mapped = data->Map(f);
+    return new Stack<T>(mapped);
+}
+
+template<class T>
+Stack<T> *Stack<T>::Where(std::function<bool(T)> f) const {
+    Sequence<T> *filtered = data->Where(f);
+    return new Stack<T>(filtered);
+}
 
 template<class T>
 T Stack<T>::Reduce(std::function<T(T, T)> f, T init) const {
     return data->Reduce(f, init);
 }
 
-
 template<class T>
-Sequence<T> *Stack<T>::Zip(Stack<T> *other, std::function<T(T, T)> f) const {
-    return data->Zip(other->data, f);
+Stack<T> *Stack<T>::Zip(Stack<T> *other, std::function<T(T, T)> f) const {
+    Sequence<T> *zipped = data->Zip(other->data, f);
+    return new Stack<T>(zipped);
 }
-
-template<class T>
-Stack<T> *Stack<T>::Sort() const {
-    int n = data->GetLength();
-    T *arr = new T[n];
-    for (int i = 0; i < n; i++) {
-        arr[i] = data->Get(i);
-    }
-    // Пузырьковая сортировка
-    for (int i = 0; i < n - 1; i++) {
-        for (int j = 0; j < n - i - 1; j++) {
-            if (arr[j] > arr[j + 1]) {
-                T temp = arr[j];
-                arr[j] = arr[j + 1];
-                arr[j + 1] = temp;
-            }
-        }
-    }
-
-    Sequence<T> *sorted = new MutableArraySequence<T>(arr, n);
-    delete[] arr;
-
-    return new Stack<T>(sorted);
-}
-
 
 template<class T>
 Stack<T> *Stack<T>::Concat(Stack<T> *other) const {
@@ -247,9 +195,36 @@ Stack<T> *Stack<T>::Concat(Stack<T> *other) const {
     return new Stack<T>(combined);
 }
 
-template<class T> // получение подпоследовательности
+template<class T>
 Sequence<T> *Stack<T>::GetSubsequence(int start, int end) const {
+    if (start < 0 || start >= GetSize()) {
+        throw IndexOutOfRangeException(start, GetSize());
+    }
+    if (end < 0 || end >= GetSize()) {
+        throw IndexOutOfRangeException(end, GetSize());
+    }
+    if (end < start) {
+        throw IndexOutOfRangeException("start > end");
+    }
     return data->GetSubsequence(start, end);
+}
+
+template<class T>
+Stack<T> *Stack<T>::Skip(int n) const {
+    if (n < 0) {
+        throw InvalidArgumentException("n не может быть отрицательным");
+    }
+    Sequence<T> *skipped = data->Skip(n);
+    return new Stack<T>(skipped);
+}
+
+template<class T>
+Stack<T> *Stack<T>::Take(int n) const {
+    if (n < 0) {
+        throw InvalidArgumentException("n не может быть отрицательным");
+    }
+    Sequence<T> *taken = data->Take(n);
+    return new Stack<T>(taken);
 }
 
 template<class T>
@@ -262,7 +237,7 @@ void Stack<T>::Print(std::ostream &os) const {
     os << "]";
 }
 
-template<class T> // Перегрузка оператора вывода
+template<class T>
 std::ostream &operator<<(std::ostream &os, const Stack<T> &stack) {
     stack.Print(os);
     return os;
